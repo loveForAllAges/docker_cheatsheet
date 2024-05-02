@@ -219,92 +219,69 @@ SHELL [“executable”, “params”]
 # Specify the system call signal for exiting a container
 STOPSIGNAL signal
 ```
-## Примеры Docker compose
-Пример 1:
-```dockercompose
-services:
-    mongo:
-        image: mongo:latest
-        ports:
-            - “27017: 27017”
-        volumes:
-            - mongo_data: /data/db
-        environment:
-            MONGO_INITDB_ROOT_USERNAME: admin
-            MONGO_INITDB_ROOT_PASSWORD: admin
-        api:
-            build:
-                context: ./api
-            dockerfile: Dockerfile
-            ports:
-                - “5000:5000”
-            depends_on:
-                - mongo
-        environment:
-            MONGO_URI: mongo_db://admin:admin@mongo:27017/mydatabase
-        networks:
-            - mern_network
-        client:
-            build:
-                context: ./client
-                dockerfile: Dockerfile
-        ports:
-            - “3000:3000”
-        depends_on:
-            - api
-            networks:
-                - mern_network
-    volumes:
-        mongo_data:
-    networks:
-        mern_network:
-```
-Пример 2:
-```dockercompose
-version: '3.5'
-services:
-  web-server:
-    image: nginx:stable
-    container_name: mynginx
-    volumes:
-      - '/home/john/it/html:/var/www/html'
-      - '/home/john/it/pics:/var/www/pictures'
-    environment:
-      - 'NGINX_HOST=web.user'
-      - 'NGINX_PORT=80'
-    ports:
-      - '80:80'
-      - '443:443'
-    restart: unless-stopped
-networks:
-  default:
-    driver: bridge
-    name: webnet
-```
-## Примеры Dockerfile
-Пример 1:
+## Примеры использования Docker
+Пример 1. Dockerfile + Docker compose Django приложения с PostgreSQL БД:
+Dockerfile:
 ```dockerfile
-# Use an official Node.js runtime as a base image
-FROM node:20-alpine
+FROM python:3.12.3-alpine3.19
 
-# Set the working directory to /app
-WORKDIR /app
+COPY requirements.txt /temp/requirements.txt
+COPY service /service
+WORKDIR /service
+EXPOSE 8000
 
-# Copy package.json and package-lock.json to the working directory
-COPY package*.json ./
+RUN apk add postgresql-client build-base postgresql-dev
+RUN pip install -r /temp/requirements.txt
+RUN adduser --disabled-password service-user
 
-# Install dependencies
-RUN npm install
-
-# Copy the current directory contents to the container at /app
-COPY . .
-
-# Expose port 8080 to the outside world
-EXPOSE 8080
-
-# Define environment variable
-ENV NODE_ENV=production
-
-# Run app.js when the container launches
-CMD node app.js
+USER service-user
+```
+Docker-compose.yml:
+```yml
+services:
+	web-app:
+		build:
+		context: .
+		ports:
+			- "8000:8000"
+		volumes:
+			- ./service:/service
+		environment:
+			- DB_HOST=database
+			- DB_NAME=dbname
+			- DB_USER=dbuser
+			- DB_PASS=pwd
+		command: >
+			sh -c "python manage.py runserver 0.0.0.0:8000"
+		depends_on:
+			- database
+	database:
+		image: postgres:16.2-alpine
+		environment:
+			- POSTGRES_DB=dbname
+			- POSTGRES_USER=dbuser
+			- POSTGRES_PASSWORD=pwd
+```
+Также необходимо изменить конфиг DB в Django:
+```python
+DATABASES = {
+	'default': {
+		'ENGINE': 'django.db.backends.postgresql',
+		'HOST': os.environ.get('DB_HOST'),
+		'NAME': os.environ.get('DB_NAME'),
+		'USER': os.environ.get('DB_USER'),
+		'PASSWORD': os.environ.get('DB_PASS'),
+	}
+}
+```
+Файл requirements.txt с необходимыми зависимостями:
+```file
+Django==5.0.4
+psycopg2==2.9.9
+```
+Далее переходим в каталог с докер файлами, создаем там директорию service/ и запускаем контейнер:
+```bash
+docker-compose build
+docker-compose up
+docker-compose run --rm sh -c "python manage.py migrate"
 ```
